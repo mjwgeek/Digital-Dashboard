@@ -3,7 +3,7 @@ Description=WebSocket Server for M17 Reflector and DMR Dashboards
 After=network.target
 
 [Service]
-ExecStart=/usr/bin/python3 /srv/http/digidash/websocket_server.py
+ExecStart=/usr/bin/python3 /opt/digidash/websocket_server.py
 Restart=on-failure
 RestartSec=5
 

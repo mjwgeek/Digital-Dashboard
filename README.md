@@ -12,7 +12,7 @@ M17 (mrefd)
 
 DMR (MMDVM_Bridge)
 
-P25 (P25Reflector)
+P25 (MMDVM_Bridge2)
 
 YSF (MMDVM_Bridge YSF)
 

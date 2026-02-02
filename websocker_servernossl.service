@@ -1,0 +1,14 @@
+[Unit]
+Description=WebSocket Server (NO SSL) for Digital Dashboard
+After=network.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/digidash
+ExecStart=/usr/bin/python3 /opt/digidash/websocket_server_nossl.py
+Restart=always
+RestartSec=2
+User=root
+
+[Install]
+WantedBy=multi-user.target

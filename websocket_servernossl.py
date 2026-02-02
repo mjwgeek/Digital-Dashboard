@@ -20,9 +20,9 @@ from collections import deque
 # -----------------------------
 # MODE ENABLE/DISABLE
 # -----------------------------
-ENABLE_M17 = False
+ENABLE_M17 = True
 ENABLE_DMR = True
-ENABLE_P25 = False
+ENABLE_P25 = True
 ENABLE_YSF = True
 
 # If True: if a service unit doesn't exist on this machine, auto-disable that mode.
@@ -33,9 +33,9 @@ DMR_UNIT = "mmdvm_bridge.service"
 P25_UNIT = "p25reflector.service"
 YSF_UNIT = "mmdvm_bridgeysf.service"
 
-ASL_BASE_CALLSIGN = "WG5EEK"
+ASL_BASE_CALLSIGN = "CALLSIGN"
 ASL_LABEL_SOURCE = "ASL"
-ASL_LABEL_CALL = "ASL-Bridge 51094"
+ASL_LABEL_CALL = "ASL-Bridge NODEID"
 SUPPRESS_ASL_WHEN_EXTERNAL_TALKING = True
 
 EXPIRE_SECONDS = 300
@@ -48,6 +48,7 @@ HEARTBEAT_SECONDS = 10
 ASL_MIN_MODES_FOR_ROLLUP = 2
 
 # Websocket listen (NO SSL)
+# Note:  If you change the port here, you will have to change it in index.php as well.
 WS_BIND = "0.0.0.0"
 WS_PORT = 8765
 

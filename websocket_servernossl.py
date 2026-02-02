@@ -17,6 +17,17 @@ from collections import deque
 # -----------------------------
 # NOTE: NO SSL CERT/KEY IN THIS VERSION
 
+# -----------------------------
+# MODE ENABLE/DISABLE
+# -----------------------------
+ENABLE_M17 = False
+ENABLE_DMR = True
+ENABLE_P25 = False
+ENABLE_YSF = True
+
+# If True: if a service unit doesn't exist on this machine, auto-disable that mode.
+AUTO_DISABLE_MISSING_UNITS = True
+
 M17_UNIT = "mrefd.service"
 DMR_UNIT = "mmdvm_bridge.service"
 P25_UNIT = "p25reflector.service"
@@ -24,7 +35,7 @@ YSF_UNIT = "mmdvm_bridgeysf.service"
 
 ASL_BASE_CALLSIGN = "WG5EEK"
 ASL_LABEL_SOURCE = "ASL"
-ASL_LABEL_CALL = "ASL-Bridge 510541"
+ASL_LABEL_CALL = "ASL-Bridge 51094"
 SUPPRESS_ASL_WHEN_EXTERNAL_TALKING = True
 
 EXPIRE_SECONDS = 300
@@ -38,7 +49,7 @@ ASL_MIN_MODES_FOR_ROLLUP = 2
 
 # Websocket listen (NO SSL)
 WS_BIND = "0.0.0.0"
-WS_PORT = 8766   # <-- use a different port so it won't collide with your TLS server
+WS_PORT = 8765
 
 # -----------------------------
 # Logging helper
@@ -59,6 +70,48 @@ def log_flush(msg):
 # -----------------------------
 # Helpers
 # -----------------------------
+def systemd_unit_exists(unit_name):
+    """
+    Returns True if systemd knows about the unit.
+    Safe if systemctl isn't present (returns False).
+    """
+    try:
+        p = subprocess.Popen(
+            ["systemctl", "status", unit_name],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE
+        )
+        p.communicate()
+        # systemctl status returns:
+        # 0 = active/running, 3 = inactive/dead, 4 = not-found, etc.
+        return p.returncode != 4
+    except Exception:
+        return False
+
+
+def apply_auto_disable():
+    global ENABLE_M17, ENABLE_DMR, ENABLE_P25, ENABLE_YSF
+
+    if not AUTO_DISABLE_MISSING_UNITS:
+        return
+
+    if ENABLE_M17 and not systemd_unit_exists(M17_UNIT):
+        ENABLE_M17 = False
+        log_flush("Auto-disabled M17 (missing unit: {})".format(M17_UNIT))
+
+    if ENABLE_DMR and not systemd_unit_exists(DMR_UNIT):
+        ENABLE_DMR = False
+        log_flush("Auto-disabled DMR (missing unit: {})".format(DMR_UNIT))
+
+    if ENABLE_P25 and not systemd_unit_exists(P25_UNIT):
+        ENABLE_P25 = False
+        log_flush("Auto-disabled P25 (missing unit: {})".format(P25_UNIT))
+
+    if ENABLE_YSF and not systemd_unit_exists(YSF_UNIT):
+        ENABLE_YSF = False
+        log_flush("Auto-disabled YSF (missing unit: {})".format(YSF_UNIT))
+
+
 def get_uptime_seconds():
     try:
         with open("/proc/uptime", "r") as f:
@@ -66,7 +119,60 @@ def get_uptime_seconds():
     except Exception:
         return 0.0
 
-def parse_syslog_time(ts):
+
+def now_syslog_ts():
+    # Used mainly for "fake" timestamps we generate (ASL rollup)
+    return datetime.now().strftime("%b %d %H:%M:%S")
+
+
+def normalize_callsign(val):
+    if val is None:
+        return None
+    return str(val).strip()
+
+
+def is_local_origin(callsign_or_id):
+    if not callsign_or_id:
+        return False
+    s = str(callsign_or_id).strip().upper()
+    return s.startswith(ASL_BASE_CALLSIGN.upper())
+
+
+# --- Timestamp parsing (handles both syslog and ISO from journalctl) ---
+
+_iso_strip_frac_re = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.\d+)?([+-]\d{4})$")
+
+def parse_any_time_to_epoch(ts):
+    """
+    Accepts:
+      - 'Feb 01 22:14:00'
+      - 'Feb 01 22:14:00.164093'
+      - '2026-02-01T22:14:00-0600'
+      - '2026-02-01T22:14:00.164093-0600'
+    Returns epoch seconds or None.
+    """
+    if not ts:
+        return None
+
+    ts = ts.strip()
+
+    # ISO-ish (short-iso / short-iso-precise)
+    m = _iso_strip_frac_re.match(ts)
+    if m:
+        base = m.group(1)
+        off = m.group(2)
+        try:
+            # Python 3.5 supports %z
+            dt = datetime.strptime(base + off, "%Y-%m-%dT%H:%M:%S%z")
+            return dt.timestamp()
+        except Exception:
+            return None
+
+    # syslog-ish (short / short-precise)
+    # Remove fractional seconds if present
+    if "." in ts:
+        ts = ts.split(".", 1)[0]
+
     try:
         now = datetime.now()
         dt = datetime.strptime(ts, "%b %d %H:%M:%S")
@@ -75,26 +181,13 @@ def parse_syslog_time(ts):
     except Exception:
         return None
 
-def now_syslog_ts():
-    return datetime.now().strftime("%b %d %H:%M:%S")
-
-def normalize_callsign(val):
-    if val is None:
-        return None
-    return str(val).strip()
-
-def is_local_origin(callsign_or_id):
-    if not callsign_or_id:
-        return False
-    s = str(callsign_or_id).strip().upper()
-    return s.startswith(ASL_BASE_CALLSIGN.upper())
 
 def expire_talker(talker_dict, expire_seconds):
     now = time.time()
     if not talker_dict.get("callsign"):
         return
     ref_ts = talker_dict.get("last_event_time") or talker_dict.get("end_time") or talker_dict.get("start_time")
-    ref_epoch = parse_syslog_time(ref_ts) if ref_ts else None
+    ref_epoch = parse_any_time_to_epoch(ref_ts) if ref_ts else None
     if talker_dict.get("status") != "talking" and ref_epoch is not None and (now - ref_epoch) > expire_seconds:
         talker_dict["callsign"] = None
         talker_dict["module"] = None
@@ -126,14 +219,17 @@ class JournalFollower(object):
         t.start()
 
     def _spawn(self):
+        # Force a stable, parseable format on both Debian 12 and Arch:
+        # 2026-02-01T22:14:00.164093-0600 HOST PROC[PID]: MESSAGE
         cmd = [
             "journalctl", "--no-pager",
             "-u", self.unit_name,
             "-f", "-n", "0",
-            "-o", "short"
+            "-o", "short-iso-precise"
         ]
         self.spawn_count += 1
         log_flush("Starting follower for {} (spawn #{})".format(self.unit_name, self.spawn_count))
+
         self._proc = subprocess.Popen(
             cmd,
             stdout=subprocess.PIPE,
@@ -174,23 +270,39 @@ dmr_q = deque()
 p25_q = deque()
 ysf_q = deque()
 
-followers = [
-    JournalFollower(M17_UNIT, m17_q),
-    JournalFollower(DMR_UNIT, dmr_q),
-    JournalFollower(P25_UNIT, p25_q),
-    JournalFollower(YSF_UNIT, ysf_q),
-]
+followers = []
+
+def build_followers():
+    global followers
+    followers = []
+    if ENABLE_M17:
+        followers.append(JournalFollower(M17_UNIT, m17_q))
+    if ENABLE_DMR:
+        followers.append(JournalFollower(DMR_UNIT, dmr_q))
+    if ENABLE_P25:
+        followers.append(JournalFollower(P25_UNIT, p25_q))
+    if ENABLE_YSF:
+        followers.append(JournalFollower(YSF_UNIT, ysf_q))
 
 # -----------------------------
-# Syslog line splitter
+# Journal line splitter
 # -----------------------------
-syslog_prefix_re = re.compile(r"^(\w{3}\s+\d{2}\s+\d{2}:\d{2}:\d{2}:\d{2})\s+\S+\s+([^:]+):\s+(.*)$")
+# Handles:
+#  - short-iso-precise: 2026-02-01T22:14:00.164093-0600 host proc[pid]: msg
+#  - short:             Feb 01 22:14:00 host proc[pid]: msg
+#  - short-precise:     Feb 01 22:14:00.164093 host proc[pid]: msg
 
-def split_syslog(line):
-    m = syslog_prefix_re.match(line)
-    if not m:
-        return None, None, None
-    return m.group(1), m.group(2), m.group(3)
+iso_prefix_re = re.compile(r"^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?[+-]\d{4})\s+\S+\s+([^:]+):\s+(.*)$")
+sys_prefix_re = re.compile(r"^(\w{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}(?:\.\d+)?)\s+\S+\s+([^:]+):\s+(.*)$")
+
+def split_journal(line):
+    m = iso_prefix_re.match(line)
+    if m:
+        return m.group(1), m.group(2), m.group(3)
+    m = sys_prefix_re.match(line)
+    if m:
+        return m.group(1), m.group(2), m.group(3)
+    return None, None, None
 
 # -----------------------------
 # State
@@ -235,12 +347,12 @@ def push_last_heard(entry):
     if cs and proto == "ASL" and external_talking_now and SUPPRESS_ASL_WHEN_EXTERNAL_TALKING:
         return
 
-    new_epoch = parse_syslog_time(ts) if ts else None
+    new_epoch = parse_any_time_to_epoch(ts) if ts else None
     if cs and new_epoch is not None:
         for e in last_heard[:25]:
             if e.get("callsign") != cs:
                 continue
-            old_epoch = parse_syslog_time(e.get("timestamp")) if e.get("timestamp") else None
+            old_epoch = parse_any_time_to_epoch(e.get("timestamp")) if e.get("timestamp") else None
             if old_epoch is None:
                 continue
             if abs(new_epoch - old_epoch) <= LAST_HEARD_DEDUP_SECONDS:
@@ -251,7 +363,7 @@ def push_last_heard(entry):
         del last_heard[MAX_LAST_HEARD:]
 
 # -----------------------------
-# Parsers (UNCHANGED FROM YOUR WORKING VERSION)
+# Parsers (UNCHANGED)
 # -----------------------------
 open_stream_pattern = re.compile(r"Opening stream on module (\w) for client (\S+)")
 close_stream_pattern = re.compile(r"Closing stream on module (\w)")
@@ -266,7 +378,7 @@ def parse_m17_lines():
         except IndexError:
             break
 
-        sys_ts, _src, msg = split_syslog(line)
+        sys_ts, _src, msg = split_journal(line)
         if not sys_ts or not msg:
             continue
 
@@ -346,7 +458,7 @@ def parse_dmr_lines():
         except IndexError:
             break
 
-        sys_ts, _src, msg = split_syslog(line)
+        sys_ts, _src, msg = split_journal(line)
         if not sys_ts or not msg:
             continue
 
@@ -434,7 +546,7 @@ def parse_p25_lines():
         except IndexError:
             break
 
-        sys_ts, _src, msg = split_syslog(line)
+        sys_ts, _src, msg = split_journal(line)
         if not sys_ts or not msg:
             continue
 
@@ -497,7 +609,7 @@ def parse_ysf_lines():
         except IndexError:
             break
 
-        sys_ts, _src, msg = split_syslog(line)
+        sys_ts, _src, msg = split_journal(line)
         if not sys_ts or not msg:
             continue
 
@@ -525,12 +637,23 @@ def parse_ysf_lines():
 # External talker check
 # -----------------------------
 def any_external_talker_active():
-    for cs, info in clients_talking.items():
-        if info.get("status") == "talking" and cs and (not is_local_origin(cs)):
+    if ENABLE_M17:
+        for cs, info in clients_talking.items():
+            if info.get("status") == "talking" and cs and (not is_local_origin(cs)):
+                return True
+
+    if ENABLE_DMR:
+        if dmr_talker.get("status") == "talking" and dmr_talker.get("callsign") and (not is_local_origin(dmr_talker.get("callsign"))):
             return True
-    for t in (dmr_talker, p25_talker, ysf_talker):
-        if t.get("status") == "talking" and t.get("callsign") and (not is_local_origin(t.get("callsign"))):
+
+    if ENABLE_P25:
+        if p25_talker.get("status") == "talking" and p25_talker.get("callsign") and (not is_local_origin(p25_talker.get("callsign"))):
             return True
+
+    if ENABLE_YSF:
+        if ysf_talker.get("status") == "talking" and ysf_talker.get("callsign") and (not is_local_origin(ysf_talker.get("callsign"))):
+            return True
+
     return False
 
 # -----------------------------
@@ -554,7 +677,7 @@ def build_combined_clients_talking():
 
         if status != "talking":
             ref_ts = end_ts or start_ts
-            ref_epoch = parse_syslog_time(ref_ts) if ref_ts else None
+            ref_epoch = parse_any_time_to_epoch(ref_ts) if ref_ts else None
             if ref_epoch is not None and (now - ref_epoch) > EXPIRE_SECONDS:
                 try:
                     del clients_talking[callsign]
@@ -668,10 +791,14 @@ def build_combined_peers(limit_n):
 
 def parse_journal_queues():
     global external_talking_now
-    parse_m17_lines()
-    parse_dmr_lines()
-    parse_p25_lines()
-    parse_ysf_lines()
+    if ENABLE_M17:
+        parse_m17_lines()
+    if ENABLE_DMR:
+        parse_dmr_lines()
+    if ENABLE_P25:
+        parse_p25_lines()
+    if ENABLE_YSF:
+        parse_ysf_lines()
     external_talking_now = any_external_talker_active()
 
 # -----------------------------
@@ -680,22 +807,31 @@ def parse_journal_queues():
 async def websocket_handler(websocket, path):
     while True:
         parse_journal_queues()
+
+        combined_obj = {
+            "clients_talking": build_combined_clients_talking(),
+            "last_heard": build_combined_last_heard(10),
+            "peers": build_combined_peers(10) if ENABLE_M17 else [],
+        }
+
         data = {
             "uptime_seconds": get_uptime_seconds(),
-            "combined": {
-                "clients_talking": build_combined_clients_talking(),
-                "last_heard": build_combined_last_heard(10),
-                "peers": build_combined_peers(10),
-            },
-            "mmdvm": mmdvm_status,
-            "p25": p25_status,
-            "ysf": ysf_status
+            "combined": combined_obj,
         }
+
+        if ENABLE_DMR:
+            data["mmdvm"] = mmdvm_status
+        if ENABLE_P25:
+            data["p25"] = p25_status
+        if ENABLE_YSF:
+            data["ysf"] = ysf_status
+
         try:
             await websocket.send(json.dumps(data))
         except Exception as e:
             log_flush("Websocket send failed: {}".format(e))
             return
+
         await asyncio.sleep(1)
 
 # -----------------------------
@@ -728,8 +864,16 @@ def heartbeat_loop():
 def main():
     log_flush("Starting websocket_server_nossl (journald direct) on {}:{}".format(WS_BIND, WS_PORT))
 
+    apply_auto_disable()
+    build_followers()
+
+    if not followers:
+        log_flush("No modes enabled/found. Exiting.")
+        return
+
     for f in followers:
         f.start()
+
     t = threading.Thread(target=heartbeat_loop)
     t.daemon = True
     t.start()

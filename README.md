@@ -16,9 +16,6 @@ P25 (P25Reflector)
 
 YSF (MMDVM_Bridge YSF)
 
-🔐 Secure WebSocket (WSS) output (TLS)
-
-🧠 Smart ASL rollup detection
 
 🚫 Accurate suppression of local-origin transmissions
 
@@ -26,24 +23,10 @@ YSF (MMDVM_Bridge YSF)
 
 🔄 No polling files, reads directly from journald
 
-🐍 Python 3.5 compatible (HamVOIP / legacy systems)
+🐍 Python 3.5 compatible (HamVOIP / legacy systems) and Allstarlink 3
 
 🧠 Design Philosophy (Important)
 Local vs External Callsigns
-
-This dashboard makes a hard distinction between:
-
-External RF stations (e.g. W1AW)
-
-Local-origin bridge activity (e.g. WG5EEK)
-
-Local-origin transmissions are not RF activity and are treated as internal bridge artifacts.
-
-As a result:
-
-WG5EEK never appears as a normal talker
-
-WG5EEK never appears in Last Heard
 
 Bridge echo traffic does not generate ASL entries
 
@@ -78,34 +61,6 @@ What ASL Will Never Do
 ❌ Duplicate itself across key-ups
 
 📊 Output Data Structure
-
-The WebSocket sends JSON updates once per second:
-
-{
-  "uptime_seconds": 123456,
-  "combined": {
-    "clients_talking": [],
-    "last_heard": [],
-    "peers": []
-  },
-  "mmdvm": {},
-  "p25": {},
-  "ysf": {}
-}
-
-Clients Talking
-
-Only currently active RF talkers
-
-Local-origin callsigns are suppressed
-
-ASL appears only when legitimately inferred
-
-Last Heard
-
-Only pushed when a transmission ends
-
-De-duplicated within a short time window
 
 Local-origin callsigns are suppressed
 
@@ -143,11 +98,20 @@ fullchain_cert = "/etc/ssl/domain/domain.cert.pem"
 private_key   = "/etc/ssl/private/private.key.pem"
 
 
-The server runs as WSS only (no plaintext WebSocket).
+The server runs as WSS or WS depending on install.
 
 ⚙️ Configuration Options
-ASL_BASE_CALLSIGN = "WG5EEK"
-ASL_LABEL_CALL   = "ASL-Bridge 510541"
+ASL_BASE_CALLSIGN = "CALLSIGN"
+ASL_LABEL_SOURCE  = "ASL"
+ASL_LABEL_CALL   = "ASL-Bridge xxxxxx (Node Id Number)"
+
+ENABLE_M17 = True
+ENABLE_DMR = True
+ENABLE_P25 = True
+ENABLE_YSF = True
+
+# If True: if a service unit doesn't exist on this machine, auto-disable that mode.
+AUTO_DISABLE_MISSING_UNITS = True
 
 ASL_MIN_MODES_FOR_ROLLUP = 2
 SUPPRESS_ASL_WHEN_EXTERNAL_TALKING = True
@@ -168,6 +132,8 @@ python3 websocket_server.py or via included websocket_server.service systemd fil
 The server listens on:
 
 wss://0.0.0.0:8765
+or
+ws://0.0.0.0:8675 (for non SSL systems)
 
 
 Intended to be run as a systemd service.
@@ -186,20 +152,7 @@ WebSocket send errors
 
 All logs go to stdout, making them visible via:
 
-journalctl -u your-service-name -f
+journalctl -u websocket_server -f
 
-🧾 Known Good Behavior (Baseline)
-
-✅ External RF callsigns show normally
-
-✅ Local-origin callsign never appears as a talker
-
-✅ ASL only appears for genuine multi-mode bridge activity
-
-✅ ASL never appears for single-mode keys
-
-✅ No ghost ASL entries
-
-✅ No duplicate Last-Heard spam
 
 <img width="1916" height="749" alt="image" src="https://github.com/user-attachments/assets/db6bd1b4-56ba-490a-aeb3-a753ee28d43b" />

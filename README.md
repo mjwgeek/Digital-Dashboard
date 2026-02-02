@@ -139,4 +139,4 @@ journalctl -u websocket_server -f
 If anyone wants to help add NXDN or another mode, I will take Pull Requests.
 
 
-<img width="1916" height="749" alt="image" src="https://github.com/user-attachments/assets/db6bd1b4-56ba-490a-aeb3-a753ee28d43b" />
+<img width="4000" height="2000" alt="image" src="https://github.com/user-attachments/assets/db6bd1b4-56ba-490a-aeb3-a753ee28d43b" />

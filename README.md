@@ -8,20 +8,10 @@ This project was built to correctly represent RF activity vs local bridge activi
 
 📡 Live monitoring of:
 
-M17 (mrefd)
-
-DMR (MMDVM_Bridge)
-
-P25 (P25Reflector)
-
-YSF (MMDVM_Bridge YSF)
+M17 (mrefd), DMR (MMDVM_Bridge), P25 (P25Reflector), YSF (MMDVM_Bridge YSF)
 
 
-🚫 Accurate suppression of local-origin transmissions
-
-🕒 Last-Heard tracking with de-duplication
-
-🔄 No polling files, reads directly from journald
+🚫 Accurate suppression of local-origin transmissions, 🕒 Last-Heard tracking with de-duplication, 🔄 No polling files, reads directly from journald
 
 🐍 Python 3.5 compatible (HamVOIP / legacy systems) and Allstarlink 3
 
@@ -52,13 +42,8 @@ A single ASL entry is pushed to Last Heard only when it ends
 
 What ASL Will Never Do
 
-❌ Appear when only one mode is keyed
+❌ Appear when only one mode is keyed, ❌ Appear due to bridge echo, ❌ Duplicate itself across key-ups
 
-❌ Appear during external RF traffic
-
-❌ Appear due to bridge echo
-
-❌ Duplicate itself across key-ups
 
 📊 Output Data Structure
 
@@ -66,19 +51,14 @@ Local-origin callsigns are suppressed
 
 ASL appears only when appropriate
 
+
 📁 Requirements
 
 Linux system using systemd / journald
 
 Services:
 
-mrefd.service (for M17)
-
-mmdvm_bridge.service (for DMR)
-
-p25reflector.service (for P25)
-
-mmdvm_bridgeysf.service (For YSF or equivalent)
+mrefd.service (for M17), mmdvm_bridge.service (for DMR), p25reflector.service (for P25), mmdvm_bridgeysf.service (For YSF or equivalent)
 
 Python 3.5+
 
@@ -95,35 +75,37 @@ Valid TLS certificate & key
 Edit these paths at the top of the script:
 
 fullchain_cert = "/etc/ssl/domain/domain.cert.pem"
+
 private_key   = "/etc/ssl/private/private.key.pem"
 
 
-The server runs as WSS or WS depending on install.
-
 ⚙️ Configuration Options
 ASL_BASE_CALLSIGN = "CALLSIGN"
+
 ASL_LABEL_SOURCE  = "ASL"
+
 ASL_LABEL_CALL   = "ASL-Bridge xxxxxx (Node Id Number)"
 
 ENABLE_M17 = True
+
 ENABLE_DMR = True
+
 ENABLE_P25 = True
+
 ENABLE_YSF = True
 
-# If True: if a service unit doesn't exist on this machine, auto-disable that mode.
+If True: if a service unit doesn't exist on this machine, auto-disable that mode.
+
 AUTO_DISABLE_MISSING_UNITS = True
 
 ASL_MIN_MODES_FOR_ROLLUP = 2
+
 SUPPRESS_ASL_WHEN_EXTERNAL_TALKING = True
 
 
 These allow you to tailor behavior for:
 
-Different callsigns
-
-Different bridge policies
-
-More or less aggressive ASL detection
+Different callsigns, Different bridge policies, More or less aggressive ASL detection
 
 🚀 Running the Server
 python3 websocket_server.py or via included websocket_server.service systemd file
@@ -153,6 +135,8 @@ WebSocket send errors
 All logs go to stdout, making them visible via:
 
 journalctl -u websocket_server -f
+
+If anyone wants to help add NXDN or another mode, I will take Pull Requests.
 
 
 <img width="1916" height="749" alt="image" src="https://github.com/user-attachments/assets/db6bd1b4-56ba-490a-aeb3-a753ee28d43b" />

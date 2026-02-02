@@ -35,9 +35,9 @@ DMR_UNIT = "mmdvm_bridge.service"
 P25_UNIT = "p25reflector.service"
 YSF_UNIT = "mmdvm_bridgeysf.service"
 
-ASL_BASE_CALLSIGN = "WG5EEK"
+ASL_BASE_CALLSIGN = "CALLSIGN"
 ASL_LABEL_SOURCE  = "ASL"
-ASL_LABEL_CALL    = "ASL-Bridge 510541"
+ASL_LABEL_CALL    = "ASL-Bridge NODEID"
 SUPPRESS_ASL_WHEN_EXTERNAL_TALKING = True
 
 EXPIRE_SECONDS = 300
@@ -49,6 +49,7 @@ HEARTBEAT_SECONDS = 10
 # Require >=2 bridged modes to show ASL (keeps it from showing on single-mode blips)
 ASL_MIN_MODES_FOR_ROLLUP = 2
 
+# Note:  If you change the port here, you will have to change it in index.php as well.
 WS_BIND = "0.0.0.0"
 WS_PORT = 8765
 

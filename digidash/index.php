@@ -1,497 +1,264 @@
 <?php
 session_start();
 
-// General Information
-$sysopEmail = "admin@wg5eek.com";  // Customize
-$logo = "AR Radio Heads Logo.png"; // Path to your logo
+/* ============================================================
+   USER CONFIGURATION (REQUIRED)
+   ============================================================ */
 
-// Get external IP
-$externalIp = @file_get_contents("https://api.ipify.org");
-if ($externalIp === false) {
-    $externalIp = "Unavailable";
+// Public hostname or IP where THIS dashboard is accessed
+// Examples:
+//   dashboard.example.com
+//   radio.mydomain.net
+//   192.168.1.50
+$DASHBOARD_HOST = "your.domain.or.ip.here";
+
+// Display info
+$SYSOP_EMAIL = "admin@example.com";
+$LOGO_FILE   = "logo.png";
+
+/* ============================================================
+   END USER CONFIGURATION
+   ============================================================ */
+
+// WebSocket port used by websocket_server
+$WS_PORT = 8765;
+
+
+// Sanitize host (strip protocol and port if pasted)
+$DASHBOARD_HOST = preg_replace('#^https?://#', '', trim($DASHBOARD_HOST));
+$DASHBOARD_HOST = preg_replace('/:\d+$/', '', $DASHBOARD_HOST);
+
+if ($DASHBOARD_HOST === '') {
+    $DASHBOARD_HOST = 'localhost';
 }
 
-// Attempt reverse DNS
-$domain = ($externalIp !== "Unavailable") ? @gethostbyaddr($externalIp) : false;
-
-// Fallback domain
-if (!$domain || strpos($domain, 'isp') !== false) {
-    $domain = "wg5eek.com";
-}
+$domain = $DASHBOARD_HOST;
 ?>
-
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Digital Dashboard</title>
-  <link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Digital Voice Dashboard</title>
 
-  <style>
-    body { background-color:#121212; color:#fff; }
-    .navbar, footer { background-color:#333; }
-    .badge-success { background-color: green; }
-    .badge-m17 { background: #0d6efd; }
-    .badge-dmr { background: #fd7e14; }
-    .badge-p25 { background: #20c997; } /* teal-ish */
-    .badge-ysf { background: #a855f7; } /* purple-ish */
-    .nowrap { white-space: nowrap; }
-    .module-description { margin-right: 20px; }
-    .section-divider { height: 1px; background: rgba(255,255,255,0.12); margin: 24px 0; }
+<link href="https://stackpath.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
 
-    /* --- 2-row navbar layout --- */
-    .nav-row2{
-      display:flex;
-      justify-content:space-between;
-      align-items:flex-start;
-      gap: 12px;
-      width:100%;
-    }
-    .nav-row2 .modules{
-      flex: 1 1 auto;
-      min-width: 0;
-      white-space: normal;
-      font-size: 0.95em;
-      opacity: 0.9;
-    }
-    .nav-row2 .uptime{
-      flex: 0 0 auto;
-      white-space: nowrap;
-      text-align: right;
-      font-size: 0.95em;
-      opacity: 0.9;
-    }
-    @media (max-width: 768px){
-      .nav-row2{
-        flex-direction: column;
-        align-items: flex-start;
-      }
-      .nav-row2 .uptime{
-        white-space: normal;
-        text-align: left;
-      }
-      .module-description{
-        margin-right: 12px;
-        display: inline-block;
-      }
-    }
-  </style>
+<style>
+body { background:#121212; color:#fff; }
+.navbar, footer { background:#333; }
+.badge-success { background:green; }
+.badge-m17 { background:#0d6efd; }
+.badge-dmr { background:#fd7e14; }
+.badge-p25 { background:#20c997; }
+.badge-ysf { background:#a855f7; }
+.nowrap { white-space:nowrap; }
+
+.section-divider {
+  height:1px;
+  background:rgba(255,255,255,0.15);
+  margin:24px 0;
+}
+
+.nav-row2{
+  display:flex;
+  justify-content:space-between;
+  align-items:flex-start;
+  gap:12px;
+}
+
+.nav-row2 .modules{ flex:1; font-size:.95em; opacity:.9; }
+.nav-row2 .uptime{ white-space:nowrap; font-size:.95em; opacity:.9; }
+
+@media (max-width:768px){
+  .nav-row2{ flex-direction:column; align-items:flex-start; }
+}
+</style>
 </head>
 
 <body>
 
 <nav class="navbar navbar-dark" style="display:block;">
-  <!-- Row 1: Title -->
   <div class="d-flex align-items-center">
-    <a class="navbar-brand mb-0" href="#" style="white-space: normal;">
-      <img src="<?= $logo ?>" alt="Logo" style="height: 80px; width: auto; margin-right: 10px;">
-      Arkansas Radio Heads Dashboard
-    </a>
+    <span class="navbar-brand mb-0">
+      <img src="<?= htmlspecialchars($LOGO_FILE) ?>" style="height:80px;margin-right:10px;">
+      Digital Voice Dashboard
+    </span>
   </div>
 
-  <!-- Row 2: Sub-title + Modules + Uptime -->
   <div class="nav-row2">
     <div class="navbar-text modules">
-      <div>M17-2MC + DMR(TGIF) TG 75309 + P25 TG 24033 + YSF 24033</div>
-      <div>
-        M17 Module:
-        <span class="module-description">D = 2 Meter Crew - Arkansas Radio Heads</span>
-      </div>
+      M17 / DMR / P25 / YSF — Live Status
     </div>
-
-    <div class="navbar-text uptime" id="uptime">Service uptime: Loading...</div>
+    <div class="navbar-text uptime" id="uptime">Service uptime: Loading…</div>
   </div>
 </nav>
 
-
 <div class="container mt-4">
 
-  <!-- Clients Talking -->
-  <h3>Clients Talking (M17 / DMR / P25 / YSF)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Source</th>
-        <th>Callsign</th>
-        <th>Module / Slot / TG / DGID</th>
-        <th>Status</th>
-        <th>Start Time</th>
-        <th>End Time</th>
-      </tr>
-    </thead>
-    <tbody id="clients-talking-body"></tbody>
-  </table>
+<h3>Clients Talking</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr>
+<th>#</th><th>Source</th><th>Callsign</th><th>Details</th>
+<th>Status</th><th>Start</th><th>End</th>
+</tr>
+</thead>
+<tbody id="clients-talking-body"></tbody>
+</table>
 
-  <!-- Last Heard -->
-  <h3>Last Heard Stations (M17 / DMR / P25 / YSF)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Source</th>
-        <th>Callsign</th>
-        <th>Protocol / Mode</th>
-        <th>Module / TG / DGID</th>
-        <th>Timestamp</th>
-      </tr>
-    </thead>
-    <tbody id="last-heard-body"></tbody>
-  </table>
+<h3>Last Heard</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr>
+<th>#</th><th>Source</th><th>Callsign</th>
+<th>Protocol</th><th>Target</th><th>Time</th>
+</tr>
+</thead>
+<tbody id="last-heard-body"></tbody>
+</table>
 
-  <!-- Peers -->
-  <h3>Peers (M17)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>#</th>
-        <th>Source</th>
-        <th>Callsign</th>
-        <th>Module</th>
-        <th>IP</th>
-        <th>Timestamp</th>
-      </tr>
-    </thead>
-    <tbody id="peers-body"></tbody>
-  </table>
+<h3>M17 Peers</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr>
+<th>#</th><th>Callsign</th><th>Module</th><th>IP</th><th>Time</th>
+</tr>
+</thead>
+<tbody id="peers-body"></tbody>
+</table>
 
-  <div class="section-divider"></div>
+<div class="section-divider"></div>
 
-  <!-- DMR / MMDVM_Bridge -->
-  <h3>DMR (MMDVM_Bridge)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>Master</th>
-        <th>Version</th>
-        <th>Last TX (when)</th>
-        <th>From (src)</th>
-        <th>To (dst/TG)</th>
-        <th>Slot</th>
-        <th>CC</th>
-        <th>Metadata</th>
-      </tr>
-    </thead>
-    <tbody id="mmdvm-body">
-      <tr><td colspan="8">Loading...</td></tr>
-    </tbody>
-  </table>
+<h3>DMR (MMDVM_Bridge)</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr>
+<th>Master</th><th>Version</th><th>Last TX</th>
+<th>From</th><th>To</th><th>Slot</th><th>CC</th><th>Meta</th>
+</tr>
+</thead>
+<tbody id="mmdvm-body"><tr><td colspan="8">Waiting for data…</td></tr></tbody>
+</table>
 
-  <!-- P25 -->
-  <h3>P25 (P25Reflector)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>Last TX (when)</th>
-        <th>From (Callsign)</th>
-        <th>RID</th>
-        <th>To (TG)</th>
-      </tr>
-    </thead>
-    <tbody id="p25-body">
-      <tr><td colspan="4">Loading...</td></tr>
-    </tbody>
-  </table>
+<h3>P25</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr><th>Time</th><th>From</th><th>RID</th><th>TG</th></tr>
+</thead>
+<tbody id="p25-body"><tr><td colspan="4">Waiting for data…</td></tr></tbody>
+</table>
 
-  <!-- YSF -->
-  <h3>YSF (MMDVM_BridgeYSF)</h3>
-  <table class="table table-dark table-striped">
-    <thead>
-      <tr>
-        <th>Last TX (when)</th>
-        <th>From (Callsign)</th>
-        <th>DG-ID</th>
-        <th>Note</th>
-        <th>Last Event</th>
-      </tr>
-    </thead>
-    <tbody id="ysf-body">
-      <tr><td colspan="5">Loading...</td></tr>
-    </tbody>
-  </table>
+<h3>YSF</h3>
+<table class="table table-dark table-striped">
+<thead>
+<tr><th>Time</th><th>Callsign</th><th>DG-ID</th><th>Note</th><th>Event</th></tr>
+</thead>
+<tbody id="ysf-body"><tr><td colspan="5">Waiting for data…</td></tr></tbody>
+</table>
 
 </div>
 
-<footer class="text-white mt-4">
-  <div class="container">
-    <div class="row">
-      <div class="col-md-6">Sysop Email: <?= $sysopEmail ?></div>
-      <div class="col-md-6 text-right">Domain: <?= $domain ?> | External IP: <?= $externalIp ?></div>
-    </div>
-  </div>
+<footer class="mt-4 text-white">
+<div class="container">
+<div class="row">
+<div class="col-md-6">Sysop: <?= htmlspecialchars($SYSOP_EMAIL) ?></div>
+<div class="col-md-6 text-right">Host: <?= htmlspecialchars($domain) ?></div>
+</div>
+</div>
 </footer>
 
 <script>
-let ws;
-let uptimeSeconds = 0;
-let intervalId;
+const WS_HOST = "<?= htmlspecialchars($domain, ENT_QUOTES) ?>";
+const WS_PORT = <?= (int)$WS_PORT ?>;
 
-function formatUptime(seconds) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor((seconds % 86400) / 3600);
-  const minutes = Math.floor((seconds % 3600) / 60);
-  const secs = Math.floor(seconds % 60);
+let ws, uptimeSeconds = 0, uptimeTimer;
 
-  let s = '';
-  if (days > 0) s += `${days} day${days !== 1 ? 's' : ''}`;
-  if (hours > 0) s += `${s ? ', ' : ''}${hours} hour${hours !== 1 ? 's' : ''}`;
-  if (minutes > 0) s += `${s ? ', ' : ''}${minutes} minute${minutes !== 1 ? 's' : ''}`;
-  s += `${s ? ', ' : ''}${secs} second${secs !== 1 ? 's' : ''}`;
-  return s;
+function badge(src){
+  const s=(src||'').toUpperCase();
+  if(s==='M17')return'<span class="badge badge-m17">M17</span>';
+  if(s==='DMR')return'<span class="badge badge-dmr">DMR</span>';
+  if(s==='P25')return'<span class="badge badge-p25">P25</span>';
+  if(s==='YSF')return'<span class="badge badge-ysf">YSF</span>';
+  return src||'-';
 }
 
-function sourceBadge(src) {
-  const s = (src || '').toUpperCase();
-  if (s === 'DMR') return '<span class="badge badge-dmr">DMR</span>';
-  if (s === 'M17') return '<span class="badge badge-m17">M17</span>';
-  if (s === 'P25') return '<span class="badge badge-p25">P25</span>';
-  if (s === 'YSF') return '<span class="badge badge-ysf">YSF</span>';
-  return `<span class="badge badge-secondary">${src || '-'}</span>`;
+function startWS(){
+  const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+  const url = `${proto}://${WS_HOST}:${WS_PORT}`;
+  ws = new WebSocket(url);
+
+  ws.onopen = ()=>console.log("WS connected:",url);
+
+  ws.onclose = ()=>{
+    console.warn("WS closed, retrying...");
+    setTimeout(startWS,3000);
+  };
+
+  ws.onmessage = e=>{
+    const d = JSON.parse(e.data);
+
+    if(d.uptime_seconds){
+      uptimeSeconds = d.uptime_seconds;
+      clearInterval(uptimeTimer);
+      uptimeTimer=setInterval(()=>{
+        uptimeSeconds++;
+        document.getElementById('uptime').innerText =
+          "Service uptime: " + uptimeSeconds + "s";
+      },1000);
+    }
+
+    // Combined sections expected from server
+    if(d.combined){
+      renderTable('clients-talking-body', d.combined.clients_talking || [], 7, r=>`
+        <tr><td>${r.idx}</td><td>${badge(r.source)}</td><td>${r.callsign}</td>
+        <td>${r.module||'-'}</td><td>${r.status}</td>
+        <td>${r.start_time}</td><td>${r.end_time}</td></tr>`);
+
+      renderTable('last-heard-body', d.combined.last_heard || [], 6, r=>`
+        <tr><td>${r.idx}</td><td>${badge(r.source)}</td><td>${r.callsign}</td>
+        <td>${r.protocol}</td><td>${r.module_or_tg}</td>
+        <td>${r.timestamp}</td></tr>`);
+
+      renderTable('peers-body', d.combined.peers || [], 5, r=>`
+        <tr><td>${r.idx}</td><td>${r.callsign}</td><td>${r.module}</td>
+        <td>${r.ip_or_master}</td><td>${r.timestamp}</td></tr>`);
+    }
+
+    if(d.mmdvm){
+      const t=d.mmdvm.last_tx||{};
+      document.getElementById('mmdvm-body').innerHTML=`
+      <tr><td>${d.mmdvm.master}</td><td>${d.mmdvm.version}</td>
+      <td>${t.timestamp}</td><td>${t.src}</td><td>${t.dst}</td>
+      <td>${t.slot}</td><td>${t.cc}</td><td>${t.metadata}</td></tr>`;
+    }
+
+    if(d.p25?.last_tx){
+      const t=d.p25.last_tx;
+      document.getElementById('p25-body').innerHTML=`
+      <tr><td>${t.timestamp}</td><td>${t.at}</td>
+      <td>${t.rid}</td><td>${t.tg}</td></tr>`;
+    }
+
+    if(d.ysf){
+      const t=d.ysf.last_tx||{}, e2=d.ysf.last_event||{};
+      document.getElementById('ysf-body').innerHTML=`
+      <tr><td>${t.timestamp}</td><td>${t.callsign}</td>
+      <td>${t.dgid}</td><td>${t.note}</td><td>${e2.msg}</td></tr>`;
+    }
+  };
 }
 
-function isTalkingStatus(st) {
-  const x = (st || '').toLowerCase();
-  return (x === 'talking' || x === 'on' || x === 'tx on');
-}
-
-/* Best-effort ordering by "Jan 28 16:51:27" */
-function timeKey(ts) {
-  if (!ts) return '';
-  return ts;
-}
-
-function sourcePriority(src) {
-  const s = (src || '').toUpperCase();
-  if (s === 'YSF') return 4;
-  if (s === 'P25') return 3;
-  if (s === 'DMR') return 2;
-  if (s === 'M17') return 1;
-  return 0;
-}
-
-function getCombinedClients(data) {
-  if (data.combined && Array.isArray(data.combined.clients_talking)) return data.combined.clients_talking;
-
-  // Legacy fallback: M17 clients object -> array
-  const out = [];
-  if (data.clients) {
-    Object.keys(data.clients).forEach((callsign) => {
-      const info = data.clients[callsign] || {};
-      out.push({
-        source: 'M17',
-        callsign: callsign,
-        module: info.module || '-',
-        status: info.status || '-',
-        start_time: info.start_time || '-',
-        end_time: info.end_time || '-',
-      });
-    });
+function renderTable(id, rows, cols, fn){
+  if(!rows.length){
+    document.getElementById(id).innerHTML =
+      `<tr><td colspan="${cols}">No data</td></tr>`;
+    return;
   }
-  return out;
+  document.getElementById(id).innerHTML =
+    rows.map((r,i)=>fn({...r,idx:i+1})).join('');
 }
 
-function getCombinedLastHeard(data) {
-  if (data.combined && Array.isArray(data.combined.last_heard)) return data.combined.last_heard;
-
-  const out = [];
-  if (Array.isArray(data.last_heard)) {
-    data.last_heard.forEach((e) => {
-      out.push({
-        source: e.source || 'M17',
-        callsign: e.callsign || '-',
-        protocol: e.protocol || '-',
-        module_or_tg: e.module || '-',
-        timestamp: e.timestamp || '-'
-      });
-    });
-  }
-  return out;
-}
-
-function getCombinedPeers(data) {
-  if (data.combined && Array.isArray(data.combined.peers)) return data.combined.peers;
-
-  const out = [];
-  if (Array.isArray(data.peers)) {
-    data.peers.forEach((p) => {
-      out.push({
-        source: 'M17',
-        callsign: p.callsign || '-',
-        module: p.module || '-',
-        ip_or_master: p.ip || '-',
-        timestamp: p.timestamp || '-'
-      });
-    });
-  }
-  return out;
-}
-
-function startWebSocket() {
-  ws = new WebSocket('wss://wg5eek.com:8765');
-
-  ws.onopen = function() {
-    console.log('WebSocket connection opened');
-  };
-
-  ws.onmessage = function(event) {
-    const data = JSON.parse(event.data);
-
-    // Uptime
-    if (data.uptime_seconds) {
-      uptimeSeconds = data.uptime_seconds;
-
-      if (intervalId) clearInterval(intervalId);
-
-      intervalId = setInterval(() => {
-        uptimeSeconds += 1;
-        document.getElementById('uptime').textContent = 'Service uptime: ' + formatUptime(uptimeSeconds);
-      }, 1000);
-    }
-
-    // ---- Clients Talking (Combined) ----
-    const clientsRaw = getCombinedClients(data);
-
-    const clients = clientsRaw.slice().sort((a, b) => {
-      const aTalk = isTalkingStatus(a.status) ? 1 : 0;
-      const bTalk = isTalkingStatus(b.status) ? 1 : 0;
-      if (aTalk !== bTalk) return bTalk - aTalk;
-
-      const aT = timeKey(a.start_time || '');
-      const bT = timeKey(b.start_time || '');
-      if (aT < bT) return 1;
-      if (aT > bT) return -1;
-
-      const ap = sourcePriority(a.source);
-      const bp = sourcePriority(b.source);
-      if (ap !== bp) return bp - ap;
-
-      return (a.callsign || '').localeCompare(b.callsign || '');
-    });
-
-    let clientsHTML = '';
-    if (clients.length > 0) {
-      clients.forEach((c, idx) => {
-        const statusCell = isTalkingStatus(c.status)
-          ? '<span class="badge badge-success">Talking</span>'
-          : (c.status || 'Not talking');
-
-        clientsHTML += `<tr>
-          <td>${idx + 1}</td>
-          <td class="nowrap">${sourceBadge(c.source)}</td>
-          <td>${c.callsign || '-'}</td>
-          <td>${c.module || '-'}</td>
-          <td>${statusCell}</td>
-          <td>${c.start_time || '-'}</td>
-          <td>${c.end_time || '-'}</td>
-        </tr>`;
-      });
-    } else {
-      clientsHTML = '<tr><td colspan="7">No active talkers</td></tr>';
-    }
-    document.getElementById('clients-talking-body').innerHTML = clientsHTML;
-
-    // ---- Last Heard (Combined) ----
-    const lastHeard = getCombinedLastHeard(data);
-    let lastHeardHTML = '';
-    if (lastHeard.length > 0) {
-      lastHeard.forEach((e, idx) => {
-        lastHeardHTML += `<tr>
-          <td>${idx + 1}</td>
-          <td class="nowrap">${sourceBadge(e.source)}</td>
-          <td>${e.callsign || '-'}</td>
-          <td>${e.protocol || '-'}</td>
-          <td>${e.module_or_tg || '-'}</td>
-          <td>${e.timestamp || '-'}</td>
-        </tr>`;
-      });
-    } else {
-      lastHeardHTML = '<tr><td colspan="6">No recent traffic</td></tr>';
-    }
-    document.getElementById('last-heard-body').innerHTML = lastHeardHTML;
-
-    // ---- Peers (M17-only from server) ----
-    const peers = getCombinedPeers(data);
-    let peersHTML = '';
-    if (peers.length > 0) {
-      peers.forEach((p, idx) => {
-        peersHTML += `<tr>
-          <td>${idx + 1}</td>
-          <td class="nowrap">${sourceBadge(p.source)}</td>
-          <td>${p.callsign || '-'}</td>
-          <td>${p.module || '-'}</td>
-          <td>${p.ip_or_master || '-'}</td>
-          <td>${p.timestamp || '-'}</td>
-        </tr>`;
-      });
-    } else {
-      peersHTML = '<tr><td colspan="6">No peers</td></tr>';
-    }
-    document.getElementById('peers-body').innerHTML = peersHTML;
-
-    // ---- MMDVM / DMR Status (NO TX STATE) ----
-    let mmdvmHTML = '';
-    if (data.mmdvm) {
-      const tx = data.mmdvm.last_tx || {};
-      mmdvmHTML = `<tr>
-        <td>${data.mmdvm.master || '-'}</td>
-        <td>${data.mmdvm.version || '-'}</td>
-        <td>${tx.timestamp || '-'}</td>
-        <td>${tx.src || '-'}</td>
-        <td>${tx.dst || '-'}</td>
-        <td>${tx.slot || '-'}</td>
-        <td>${tx.cc || '-'}</td>
-        <td>${tx.metadata || '-'}</td>
-      </tr>`;
-    } else {
-      mmdvmHTML = `<tr><td colspan="8">No MMDVM data yet</td></tr>`;
-    }
-    document.getElementById('mmdvm-body').innerHTML = mmdvmHTML;
-
-    // ---- P25 Status ----
-    let p25HTML = '';
-    if (data.p25 && data.p25.last_tx) {
-      const tx = data.p25.last_tx || {};
-      p25HTML = `<tr>
-        <td>${tx.timestamp || '-'}</td>
-        <td>${tx.at || '-'}</td>
-        <td>${tx.rid || '-'}</td>
-        <td>${tx.tg || '-'}</td>
-      </tr>`;
-    } else {
-      p25HTML = `<tr><td colspan="4">No P25 data yet</td></tr>`;
-    }
-    document.getElementById('p25-body').innerHTML = p25HTML;
-
-    // ---- YSF Status ----
-    let ysfHTML = '';
-    if (data.ysf) {
-      const tx = data.ysf.last_tx || {};
-      const ev = data.ysf.last_event || {};
-      ysfHTML = `<tr>
-        <td>${tx.timestamp || '-'}</td>
-        <td>${tx.callsign || '-'}</td>
-        <td>${tx.dgid || '-'}</td>
-        <td>${tx.note || '-'}</td>
-        <td>${ev.msg || '-'}</td>
-      </tr>`;
-    } else {
-      ysfHTML = `<tr><td colspan="5">No YSF data yet</td></tr>`;
-    }
-    document.getElementById('ysf-body').innerHTML = ysfHTML;
-  };
-
-  ws.onerror = function(error) {
-    console.log('WebSocket error: ' + (error && error.message ? error.message : error));
-  };
-
-  ws.onclose = function() {
-    console.log('WebSocket connection closed. Reconnecting...');
-    setTimeout(startWebSocket, 3000);
-  };
-}
-
-startWebSocket();
+startWS();
 </script>
 
 </body>
